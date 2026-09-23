@@ -191,3 +191,46 @@ Full details in [MIGRATION.md](MIGRATION.md). Key concepts:
 4. Records vs. classes: when would you *not* use a record?
 5. What is ProblemDetail, and what's the client-facing risk of adopting it?
 6. Why wasn't Boot 3.5 the final target?
+
+---
+
+## Phase 4 — Spring Boot 4.1 / Java 21 (final)
+
+### What changed in Boot 4 / Spring Framework 7
+- **Modularization:** the giant `spring-boot-autoconfigure` jar was split per technology.
+  Starters follow suit (`starter-webmvc`, `starter-data-jpa-test`...). Smaller classpaths, and
+  test slices only exist if you add the matching test starter.
+- **Jackson 3:** new package `tools.jackson.*` (annotations stay `com.fasterxml.jackson.annotation`),
+  ISO-8601 dates by default, some features moved between enums.
+- **Hibernate 7**, **Tomcat 11**, **Spring Framework 7** (`RestTestClient` for tests).
+
+### Techniques worth remembering
+- **Use a freshly generated project as the reference** for a new version's conventions.
+- **Find moved classes by inspecting jars** (`.jar` files are zip archives), not by guessing.
+- **Follow the compiler:** fix errors top-down, rerun, repeat. Main code needed zero changes here.
+- **Config binding errors** (`Failed to bind properties under ...`) are migration breakage too.
+- **Typed test clients:** records make request/response bodies type-safe in tests.
+
+### Mockito agent (JEP 451)
+- Mockito's inline mock maker needs a Java agent. Attaching one at runtime ("self-attach") now
+  prints a warning and will be blocked in a future JDK. Fix: pass `-javaagent:<mockito-core.jar>`
+  to the test JVM. `maven-dependency-plugin:properties` provides the jar path as a property.
+- Surefire's `@{argLine}` is resolved late, so it merges with the Windows profile's flag.
+- The path is quoted because it contains a space. Same root cause as the Phase 1 bug.
+
+### Even the newest release can lag
+- Boot 4.1.1 (the newest release) shipped Tomcat 11.0.24; three critical fixes landed in 11.0.25 afterward.
+- Response: triage (do we use the affected feature?), then a same-line pin **with an exit plan**,
+  and let Dependabot surface the Boot release that makes the pin unnecessary.
+
+### Final numbers
+- 99 vulnerabilities (8 critical) → **0**, across 78 runtime components.
+- 15 tests passing at every tag; the smoke test on the real jar returns correct JSON, `400` and `404` ProblemDetails.
+
+### Interview questions to be ready for
+1. What does "Boot 4 is modular" mean for your POM and your tests?
+2. How did you find where `@WebMvcTest` moved?
+3. The app compiled but six tests failed on startup. Walk me through finding the cause.
+4. Why load Mockito as a Java agent?
+5. The newest framework release still had critical CVEs. What did you do, and why is that override safe?
+6. If you had a 500-module legacy app on Boot 2.7, how would you plan its migration?

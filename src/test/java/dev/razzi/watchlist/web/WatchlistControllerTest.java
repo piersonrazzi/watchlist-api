@@ -11,16 +11,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.razzi.watchlist.service.NotFoundException;
 import dev.razzi.watchlist.service.WatchlistService;
-import dev.razzi.watchlist.web.dto.CreateWatchlistRequest;
 import dev.razzi.watchlist.web.dto.WatchlistResponse;
 import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -30,17 +28,18 @@ import org.springframework.test.web.servlet.MockMvc;
  * JSON conversion, validation, @RestControllerAdvice). The service is
  * replaced with a Mockito mock, so no database is involved.
  *
- * Migration note: Boot's @MockBean was deprecated in 3.4 and is removed in 4.
- * Its replacement, @MockitoBean, lives in Spring Framework itself (6.2+).
+ * Migration notes:
+ * - Boot 4 moved @WebMvcTest to the spring-boot-webmvc-test module
+ *   (package org.springframework.boot.webmvc.test.autoconfigure).
+ * - @MockBean (Boot) was replaced by @MockitoBean (Spring Framework 6.2+).
+ * - Request bodies are Java text blocks, so the test no longer needs a
+ *   Jackson ObjectMapper (whose package changed in Jackson 3).
  */
 @WebMvcTest(WatchlistController.class)
 class WatchlistControllerTest {
 
     @Autowired
     private MockMvc mvc;
-
-    @Autowired
-    private ObjectMapper json;
 
     @MockitoBean
     private WatchlistService service;
@@ -52,17 +51,22 @@ class WatchlistControllerTest {
 
         mvc.perform(post("/api/watchlists")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json.writeValueAsString(new CreateWatchlistRequest("Tech"))))
+                        .content("""
+                                {"name": "Tech"}
+                                """))
                 .andExpect(status().isCreated())
                 .andExpect(header().string("Location", endsWith("/api/watchlists/7")))
-                .andExpect(jsonPath("$.name").value("Tech"));
+                .andExpect(jsonPath("$.name").value("Tech"))
+                .andExpect(jsonPath("$.createdAt").value("2026-01-01T00:00:00Z"));
     }
 
     @Test
     void create_blankName_returns400AndNeverCallsService() throws Exception {
         mvc.perform(post("/api/watchlists")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"name\": \"   \"}"))
+                        .content("""
+                                {"name": "   "}
+                                """))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.title").value("Validation failed"))
@@ -87,8 +91,11 @@ class WatchlistControllerTest {
     void addItem_unknownInstrumentType_returns400() throws Exception {
         mvc.perform(post("/api/watchlists/1/items")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"symbol\": \"AAPL\", \"type\": \"FUTURE\"}"))
-                .andExpect(status().isBadRequest());
+                        .content("""
+                                {"symbol": "AAPL", "type": "FUTURE"}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON));
 
         verifyNoInteractions(service);
     }

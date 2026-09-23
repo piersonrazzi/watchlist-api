@@ -21,6 +21,8 @@ but it went end-of-life three months before this migration was done.
 | v0.1 | Boot 2.7.18 / Java 11 | 99 | 8 | 40 | 37 | 14 | [scan-1](security/scan-1-boot-2.7.md) |
 | v0.2 | 2.7.18 + in-line patches | 54 | 1 | 18 | 26 | 9 | [scan-2](security/scan-2-boot-2.7-patched.md) |
 | v0.3 | Boot 3.5.16 / Java 21 | 7 | 3 | 0 | 4 | 0 | [scan-3](security/scan-3-boot-3.5.md) |
+| — | Boot 4.1.1 as released | 3 | 3 | 0 | 0 | 0 | (Tomcat 11.0.24) |
+| v1.0.0 | Boot 4.1.1 + Tomcat 11.0.26 | **0** | 0 | 0 | 0 | 0 | [scan-4](security/scan-4-boot-4.1.md) |
 
 ---
 
@@ -72,3 +74,57 @@ that refuses an SBOM older than the jar.
 - But 3 new criticals: Tomcat 10.1.55 (shipped in 3.5.16) has advisories fixed in 10.1.58,
   released after 3.5 went end-of-life. No free 3.5 release will include them.
   **The CI gate is red at this tag by design.** Next step: 4.1.
+
+---
+
+## Step 2: 3.5.16 → 4.1.1 (tag `v1.0.0`)
+
+### Approach
+Manual, compiler-driven. For the new starter layout, the project's **first commit** (a fresh
+Boot 4.1.1 project from start.spring.io) served as the authoritative reference. For moved
+classes, the new locations were read directly from the downloaded jars rather than guessed.
+
+### Build changes
+| Before (3.5) | After (4.1) | Why |
+|---|---|---|
+| `spring-boot-starter-web` | `spring-boot-starter-webmvc` | Boot 4 is modular; starters are per technology |
+| `spring-boot-starter-test` | `spring-boot-starter-webmvc-test`, `-data-jpa-test`, `-validation-test` | Test support split per technology |
+| (none) | `maven-dependency-plugin:properties` + Surefire `-javaagent` | Load Mockito as an agent (JDK 21 warns on self-attach, JEP 451) |
+| (none) | `tomcat.version` 11.0.26 | Temporary: fixes newer than Boot 4.1.1. Has a written exit plan |
+
+**Main application code compiled on Boot 4 with zero changes.** All breakage was in tests and config.
+
+### Moved classes (tests)
+| Old | New |
+|---|---|
+| `org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest` | `org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest` |
+| `org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest` | `org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest` |
+| `org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager` | `org.springframework.boot.jpa.test.autoconfigure.TestEntityManager` |
+| `TestRestTemplate` + Jackson `JsonNode` | `RestTestClient` (Spring Framework 7) + `@AutoConfigureRestTestClient`, typed with our records |
+| `com.fasterxml.jackson.databind.*` | `tools.jackson.databind.*` (Jackson 3); controller test now uses text blocks instead |
+
+### The config-file failure
+Six Spring-context tests failed with a deep chain ending in:
+`No enum constant tools.jackson.databind.SerializationFeature.write-dates-as-timestamps`.
+Jackson 3 moved that feature out of `SerializationFeature`, so the property
+`spring.jackson.serialization.write-dates-as-timestamps=false` could no longer bind.
+Jackson 3 already writes ISO-8601 dates by default, so the line was deleted, and tests
+now assert the date format explicitly. **Migrations break config files, not just code.**
+
+### Security result
+- Boot 4.1.1 as released: 3 criticals, all in Tomcat 11.0.24, fixed in 11.0.25 (released after Boot 4.1.1).
+- No Boot release contained the fix yet, so `tomcat.version` was pinned to 11.0.26 (same line,
+  drop-in). Triage: the advisories affect Tomcat's DIGEST/FORM authentication and access control,
+  which this app doesn't use, but the policy is zero known criticals.
+- **0 known vulnerabilities** in 78 runtime components. CI gate green.
+- Unlike the v0.2 overrides, this one has an **exit plan** in the POM comment: remove it when a
+  Boot release manages Tomcat ≥ 11.0.25.
+
+## Checklist for the next upgrade
+1. Check support dates first (endoflife.date); target the newest supported line.
+2. `mvnw clean` and re-verify tool inputs (SBOM path, CI artifact paths).
+3. Search the POM for version overrides; remove any the new release makes obsolete.
+4. Dry-run automation (OpenRewrite); commit its output separately from manual fixes.
+5. Compile, then run *all* tests: runtime failures hide behind a green compile.
+6. Read the last `Caused by`, including in config binding errors.
+7. Rescan with the gate on; triage anything left; pin only with an exit plan.

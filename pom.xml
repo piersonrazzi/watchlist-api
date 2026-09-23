@@ -8,40 +8,55 @@
 		  v0.1  Spring Boot 2.7.18 / Java 11  (free support ended 2023-06-30)
 		  v0.2  2.7.18 + in-line security patches
 		  v0.3  Spring Boot 3.5.16 / Java 21  (free support ended 2026-06-30)
+		  v1.0  Spring Boot 4.1.1  / Java 21  (free support until 2027-07-31)
 	-->
 	<parent>
 		<groupId>org.springframework.boot</groupId>
 		<artifactId>spring-boot-starter-parent</artifactId>
-		<version>3.5.16</version>
+		<version>4.1.1</version>
 		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
 
 	<groupId>dev.razzi</groupId>
 	<artifactId>watchlist-api</artifactId>
-	<version>0.0.1-SNAPSHOT</version>
+	<version>1.0.0</version>
 	<name>watchlist-api</name>
-	<description>Options watchlist API - EOL migration demo</description>
+	<description>Options watchlist REST API, migrated from end-of-life Spring Boot 2.7 to 4.1</description>
 
 	<properties>
-		<!-- Boot 3 requires Java 17+. We go straight to the current LTS, 21. -->
+		<!-- Java 21 is the current LTS (Boot 4.1 supports 17-26). -->
 		<java.version>21</java.version>
+		<!-- Extra JVM flags for the test JVM; the Windows profile below fills this in. -->
+		<argLine></argLine>
 
 		<!--
-			The v0.2 tactical-patch overrides (tomcat.version, spring-framework.version,
-			logback.version) were REMOVED here. Left in place, they pinned Spring 5 /
-			Tomcat 9 underneath Boot 3.5: the code still compiled, but every Spring
-			context failed at runtime with NoClassDefFoundError. Boot 3.5 manages
-			current versions of all three.
+			TEMPORARY SECURITY OVERRIDE (added 2026-09-23)
+			Boot 4.1.1 ships Tomcat 11.0.24, which has 3 critical advisories
+			(CVE-2026-65182, CVE-2026-65905, CVE-2026-68525) fixed in 11.0.25.
+			No Boot release includes the fix yet, so we pin the latest 11.0.x patch.
+			Same line (11.0.x) = drop-in; all tests pass.
+			Triage: all three affect Tomcat's DIGEST/FORM auth and access-control
+			features, which this app doesn't use, but policy is zero known criticals.
+			EXIT PLAN: delete this property when upgrading to a Boot release that
+			manages Tomcat >= 11.0.25 (Dependabot will open that PR). Leftover
+			overrides are what broke the 3.5 migration; see docs/MIGRATION.md.
 		-->
+		<tomcat.version>11.0.26</tomcat.version>
 	</properties>
 
+	<!--
+		Boot 4 is modular: instead of one big autoconfigure jar, each technology
+		has its own module and starter. "starter-web" is now "starter-webmvc", and
+		the single "starter-test" is split into per-technology test starters that
+		bring only the test slices you use (@WebMvcTest, @DataJpaTest...).
+	-->
 	<dependencies>
-		<!-- REST controllers, embedded Tomcat, Jackson JSON -->
+		<!-- Spring MVC REST controllers, embedded Tomcat, JSON -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-web</artifactId>
+			<artifactId>spring-boot-starter-webmvc</artifactId>
 		</dependency>
-		<!-- Spring Data JPA + Hibernate 6 -->
+		<!-- Spring Data JPA + Hibernate 7 -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-data-jpa</artifactId>
@@ -59,10 +74,20 @@
 			<scope>runtime</scope>
 		</dependency>
 
-		<!-- JUnit 5, Mockito, AssertJ, Spring test slices -->
+		<!-- Test starters: JUnit, Mockito, AssertJ + the matching Spring test slice -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-test</artifactId>
+			<artifactId>spring-boot-starter-webmvc-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-data-jpa-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-validation-test</artifactId>
 			<scope>test</scope>
 		</dependency>
 	</dependencies>
@@ -88,6 +113,36 @@
 			<plugin>
 				<groupId>org.cyclonedx</groupId>
 				<artifactId>cyclonedx-maven-plugin</artifactId>
+			</plugin>
+
+			<!--
+				Load Mockito as a Java agent at JVM startup. Otherwise Mockito
+				"self-attaches" at runtime, which JDK 21 warns about (JEP 451) and a
+				future JDK will block. The "properties" goal exposes each dependency's
+				jar path as a Maven property, e.g. ${org.mockito:mockito-core:jar}.
+			-->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-dependency-plugin</artifactId>
+				<executions>
+					<execution>
+						<goals>
+							<goal>properties</goal>
+						</goals>
+					</execution>
+				</executions>
+			</plugin>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-surefire-plugin</artifactId>
+				<configuration>
+					<!--
+						@{argLine} is evaluated late, so it includes whatever the Windows
+						profile adds. The agent path is quoted because the local Maven
+						repository can live under a folder with a space in its name.
+					-->
+					<argLine>@{argLine} "-javaagent:${org.mockito:mockito-core:jar}"</argLine>
+				</configuration>
 			</plugin>
 		</plugins>
 	</build>
