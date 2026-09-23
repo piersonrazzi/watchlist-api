@@ -80,3 +80,63 @@ Rule of thumb: edge cases in fast tests, one happy-path lifecycle in the slow te
 4. `@WebMvcTest` vs `@SpringBootTest`: when do you use each?
 5. Why `BigDecimal.compareTo` instead of `equals`?
 6. Walk me through how you debugged the Tomcat startup failure.
+
+---
+
+## Phase 2 — Know what you ship: SBOM, vulnerability scan, CI
+
+**Goal:** measure the risk of the legacy stack, reduce it without a framework upgrade, and automate the check.
+
+### SBOM (Software Bill of Materials)
+- `cyclonedx-maven-plugin` writes `target/bom.json` during `package`: every library in the jar,
+  including **transitive** dependencies (things you never declared, like Tomcat or SnakeYAML).
+- Each entry has a **purl** (package URL), e.g. `pkg:maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.83`,
+  a universal ID that scanners understand. 62 runtime components here; test scope excluded.
+
+### Scanning against OSV.dev
+- `scripts/osv-scan.ps1` sends all purls to OSV's batch API, then pulls severity, CVE aliases and
+  fixed versions per advisory. Same data family used by Dependabot / OSV-Scanner / Snyk.
+- An advisory can have several IDs: `GHSA-...` (GitHub) and `CVE-...` (MITRE) are aliases for the same issue.
+- A finding means "this version is affected," not "this app is exploitable." Triage asks whether
+  the vulnerable feature is actually used (e.g. Tomcat DIGEST auth bugs don't apply if you don't use DIGEST auth).
+
+### Results (see `docs/security/`)
+| Scan | Total | Critical | High | Moderate | Low |
+|---|---|---|---|---|---|
+| Boot 2.7.18 as released | 99 | 8 | 40 | 37 | 14 |
+| + in-line patches | 54 | 1 | 18 | 26 | 9 |
+
+### Tactical patching (what Never-Ending Support is about)
+- Boot's parent POM exposes library versions as properties (`tomcat.version`, `spring-framework.version`,
+  `logback.version`...). Overriding them pulls patch releases **without upgrading the framework**.
+- **Same-line bumps only** (9.0.83 → 9.0.121), so behavior shouldn't change; the tests confirmed it.
+- **The ceiling:** Spring Framework's last *free* 5.3 release is **5.3.39**. OSV lists fixes in 5.3.42,
+  but that build is commercial-only; it's not on Maven Central (verified: HTTP 404). Jackson 2.13,
+  SnakeYAML 1.x and Hibernate 5.6 have no in-line fixes at all. The remaining critical
+  (CVE-2016-1000027, unsafe deserialization in `spring-web`) is only fixed in Spring 6.
+- So an EOL app has three options: migrate, pay for extended support, or accept the risk.
+  HeroDevs sells the second option; this repo demonstrates the first.
+
+### CI/CD (`.github/workflows/ci.yml`)
+- On every push/PR: Temurin 21, cached `~/.m2`, `./mvnw -B verify`, then the OSV scan as a
+  **quality gate** (`-FailOn Critical`). SBOM + report uploaded as build artifacts.
+- The gate is intentionally **red on the legacy tags** (1 critical left) and should turn green after migration.
+- `permissions: contents: read`: least privilege for the workflow token.
+- **Dependabot** (`.github/dependabot.yml`) opens weekly PRs for Maven and GitHub Actions updates.
+
+### Docker (`Dockerfile`)
+- **Multi-stage:** build with the JDK, run with the JRE only. No compiler, Maven or source in the final image.
+- Copy `pom.xml` and run `dependency:go-offline` *before* copying `src/`, so dependency downloads are
+  cached and only re-run when the POM changes.
+- Runs as a **non-root** user.
+
+### Gotcha: the executable bit
+- Git on Windows doesn't track file permissions, so `mvnw` was committed as `100644`. On the Linux CI
+  runner `./mvnw` would fail with "Permission denied". Fixed with `git update-index --chmod=+x mvnw` → `100755`.
+
+### Interview questions to be ready for
+1. What is an SBOM and why do regulators and customers ask for one?
+2. What's a transitive dependency? Give an example from this project.
+3. How do you patch a vulnerable library without upgrading the framework, and what are the limits?
+4. Does a CVE in a dependency mean your app is vulnerable? How do you triage?
+5. Why multi-stage Docker builds and a non-root user?

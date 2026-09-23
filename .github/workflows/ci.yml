@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Least privilege: this workflow only needs to read the repo.
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven # caches ~/.m2 between runs
+
+      # compile -> test -> package (jar + target/bom.json SBOM) -> verify
+      - name: Build and test
+        run: ./mvnw -B verify
+
+      # Quality gate: fail the build on any CRITICAL finding.
+      - name: Dependency vulnerability scan (OSV)
+        shell: pwsh
+        run: ./scripts/osv-scan.ps1 -Label "CI ${{ github.sha }}" -OutFile osv-report.md -FailOn Critical
+
+      - name: Upload SBOM and scan report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-reports
+          path: |
+            target/bom.json
+            osv-report.md

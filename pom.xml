@@ -25,6 +25,20 @@
 	<properties>
 		<!-- Compile to Java 11 bytecode, like a typical 2.7-era codebase. -->
 		<java.version>11</java.version>
+
+		<!--
+			TACTICAL PATCH (no framework upgrade). spring-boot-starter-parent
+			exposes each managed library's version as a property; overriding it
+			pulls a newer patch release of the same line. Only same-line bumps
+			here, so behavior shouldn't change. See docs/security/ for before/after.
+			  - Tomcat 9.0.x is still maintained by Apache: 9.0.83 -> 9.0.121
+			  - Spring Framework 5.3.39 is the LAST free 5.3 release; later 5.3.x
+			    fixes (e.g. 5.3.42) are commercial-only and not on Maven Central.
+			  - Logback 1.2.13 is the last 1.2.x fix.
+		-->
+		<tomcat.version>9.0.121</tomcat.version>
+		<spring-framework.version>5.3.39</spring-framework.version>
+		<logback.version>1.2.13</logback.version>
 	</properties>
 
 	<dependencies>
@@ -64,6 +78,31 @@
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
+			</plugin>
+			<!--
+				Software Bill of Materials (SBOM): an inventory of every library
+				that ships in the jar, including transitive ones, with exact
+				versions and package URLs (purls). Written to target/bom.json
+				during "package". Security scanners consume this file.
+			-->
+			<plugin>
+				<groupId>org.cyclonedx</groupId>
+				<artifactId>cyclonedx-maven-plugin</artifactId>
+				<version>2.9.1</version>
+				<executions>
+					<execution>
+						<phase>package</phase>
+						<goals>
+							<goal>makeAggregateBom</goal>
+						</goals>
+					</execution>
+				</executions>
+				<configuration>
+					<outputFormat>json</outputFormat>
+					<outputName>bom</outputName>
+					<!-- Only what ships to production; test libraries are excluded. -->
+					<includeTestScope>false</includeTestScope>
+				</configuration>
 			</plugin>
 		</plugins>
 	</build>

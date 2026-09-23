@@ -1,0 +1,14 @@
+# Dependabot opens pull requests when newer versions of dependencies are released,
+# so security patches show up as reviewable PRs instead of being discovered later.
+version: 2
+updates:
+  - package-ecosystem: maven
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
