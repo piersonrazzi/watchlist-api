@@ -108,6 +108,10 @@ scripts/osv-scan.ps1   SBOM -> OSV.dev vulnerability report + quality gate
 docs/                  Migration guide, scan reports, learning log
 ```
 
+## License
+
+[MIT](LICENSE)
+
 ## How this was built
 
 Built with AI-assisted development (Claude) as a pair programmer: design decisions, debugging
