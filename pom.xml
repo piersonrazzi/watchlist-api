@@ -2,69 +2,59 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
 	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
 	<modelVersion>4.0.0</modelVersion>
+
+	<!--
+		LEGACY BASELINE: Spring Boot 2.7.18 is the final 2.x release.
+		Open-source support for 2.7 ended in 2023, so this stack no longer
+		receives public security fixes. That is deliberate: this project
+		starts on an end-of-life stack and migrates forward.
+	-->
 	<parent>
 		<groupId>org.springframework.boot</groupId>
 		<artifactId>spring-boot-starter-parent</artifactId>
-		<version>4.1.1</version>
+		<version>2.7.18</version>
 		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
+
 	<groupId>dev.razzi</groupId>
 	<artifactId>watchlist-api</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
 	<name>watchlist-api</name>
 	<description>Options watchlist API - EOL migration demo</description>
-	<url/>
-	<licenses>
-		<license/>
-	</licenses>
-	<developers>
-		<developer/>
-	</developers>
-	<scm>
-		<connection/>
-		<developerConnection/>
-		<tag/>
-		<url/>
-	</scm>
+
 	<properties>
-		<java.version>21</java.version>
+		<!-- Compile to Java 11 bytecode, like a typical 2.7-era codebase. -->
+		<java.version>11</java.version>
 	</properties>
+
 	<dependencies>
+		<!-- REST controllers, embedded Tomcat, Jackson JSON -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-h2console</artifactId>
+			<artifactId>spring-boot-starter-web</artifactId>
 		</dependency>
+		<!-- Spring Data JPA + Hibernate 5 -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-data-jpa</artifactId>
 		</dependency>
+		<!-- Bean Validation (javax.validation in the 2.x era) -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-validation</artifactId>
 		</dependency>
-		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-webmvc</artifactId>
-		</dependency>
 
+		<!-- In-memory database, only needed at runtime -->
 		<dependency>
 			<groupId>com.h2database</groupId>
 			<artifactId>h2</artifactId>
 			<scope>runtime</scope>
 		</dependency>
+
+		<!-- JUnit 5, Mockito, AssertJ, Spring test slices -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-data-jpa-test</artifactId>
-			<scope>test</scope>
-		</dependency>
-		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-validation-test</artifactId>
-			<scope>test</scope>
-		</dependency>
-		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-webmvc-test</artifactId>
+			<artifactId>spring-boot-starter-test</artifactId>
 			<scope>test</scope>
 		</dependency>
 	</dependencies>
@@ -77,5 +67,42 @@
 			</plugin>
 		</plugins>
 	</build>
+
+	<profiles>
+		<!--
+			Windows-only workaround. Since JDK 16, Java NIO on Windows wakes its
+			selector through a Unix-domain socket created in the temp directory.
+			If that path is an 8.3 short name or contains spaces (e.g. a user
+			folder like "C:\Users\Custom Desktop"), Tomcat fails to start with
+			"Unable to establish loopback connection". Point the socket at a
+			space-free directory. The profile activates automatically on Windows
+			and has no effect on Linux/macOS or in CI.
+		-->
+		<profile>
+			<id>windows-uds-workaround</id>
+			<activation>
+				<os>
+					<family>windows</family>
+				</os>
+			</activation>
+			<properties>
+				<uds.tmpdir>${env.PUBLIC}</uds.tmpdir>
+				<!-- Picked up by the Surefire test runner's forked JVM. -->
+				<argLine>-Djdk.net.unixdomain.tmpdir=${uds.tmpdir}</argLine>
+			</properties>
+			<build>
+				<plugins>
+					<plugin>
+						<groupId>org.springframework.boot</groupId>
+						<artifactId>spring-boot-maven-plugin</artifactId>
+						<configuration>
+							<!-- Same fix for "mvnw spring-boot:run". -->
+							<jvmArguments>-Djdk.net.unixdomain.tmpdir=${uds.tmpdir}</jvmArguments>
+						</configuration>
+					</plugin>
+				</plugins>
+			</build>
+		</profile>
+	</profiles>
 
 </project>
