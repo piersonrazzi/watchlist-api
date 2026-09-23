@@ -2,68 +2,71 @@ package dev.razzi.watchlist.web;
 
 import dev.razzi.watchlist.service.InvalidRequestException;
 import dev.razzi.watchlist.service.NotFoundException;
-import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
+import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
-import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
 /**
- * Turns exceptions into consistent JSON error responses, in one place.
+ * Consistent error responses using ProblemDetail (RFC 9457,
+ * Content-Type "application/problem+json"), built into Spring 6 / Boot 3.
  *
- * This is a hand-rolled error format. Spring 6 / Boot 3 adds built-in
- * ProblemDetail (RFC 9457, "application/problem+json"), and in the migration
- * we'll switch to it and delete most of this code.
+ * Extending ResponseEntityExceptionHandler means every standard Spring MVC
+ * error (malformed JSON, wrong HTTP method, unsupported media type...) already
+ * comes back as a ProblemDetail. We only add handlers for our own exceptions,
+ * plus a per-field breakdown for validation failures.
+ *
+ * In the Java 11 / Boot 2.7 version this class built its own Map-based JSON
+ * and handled HttpMessageNotReadableException by hand.
+ *
+ * Example body:
+ * {
+ *   "type": "about:blank", "title": "Resource not found", "status": 404,
+ *   "detail": "Watchlist 42 not found", "instance": "/api/watchlists/42"
+ * }
  */
 @RestControllerAdvice
-public class ApiExceptionHandler {
+public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
     @ExceptionHandler(NotFoundException.class)
-    public ResponseEntity<Map<String, Object>> notFound(NotFoundException ex, HttpServletRequest request) {
-        return error(HttpStatus.NOT_FOUND, ex.getMessage(), request, null);
+    ProblemDetail notFound(NotFoundException ex) {
+        return problem(HttpStatus.NOT_FOUND, "Resource not found", ex.getMessage());
     }
 
     @ExceptionHandler(InvalidRequestException.class)
-    public ResponseEntity<Map<String, Object>> invalid(InvalidRequestException ex, HttpServletRequest request) {
-        return error(HttpStatus.BAD_REQUEST, ex.getMessage(), request, null);
+    ProblemDetail invalidRequest(InvalidRequestException ex) {
+        return problem(HttpStatus.BAD_REQUEST, "Invalid request", ex.getMessage());
     }
 
-    /** @Valid failures: report every bad field, not just the first. */
-    @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<Map<String, Object>> validation(MethodArgumentNotValidException ex,
-                                                          HttpServletRequest request) {
+    /** @Valid failures: keep Spring's ProblemDetail, add every bad field. */
+    @Override
+    protected ResponseEntity<Object> handleMethodArgumentNotValid(MethodArgumentNotValidException ex,
+                                                                  HttpHeaders headers,
+                                                                  HttpStatusCode status,
+                                                                  WebRequest request) {
         Map<String, String> fieldErrors = new LinkedHashMap<>();
         for (FieldError fe : ex.getBindingResult().getFieldErrors()) {
             fieldErrors.putIfAbsent(fe.getField(), fe.getDefaultMessage());
         }
-        return error(HttpStatus.BAD_REQUEST, "Validation failed", request, fieldErrors);
+        ProblemDetail body = ex.getBody();
+        body.setTitle("Validation failed");
+        // Custom properties are serialized as top-level JSON fields.
+        body.setProperty("fieldErrors", fieldErrors);
+        return handleExceptionInternal(ex, body, headers, status, request);
     }
 
-    /** Malformed JSON, or an unknown enum value like "type": "FUTURE". */
-    @ExceptionHandler(HttpMessageNotReadableException.class)
-    public ResponseEntity<Map<String, Object>> unreadable(HttpMessageNotReadableException ex,
-                                                          HttpServletRequest request) {
-        return error(HttpStatus.BAD_REQUEST, "Malformed JSON or invalid field value", request, null);
-    }
-
-    private static ResponseEntity<Map<String, Object>> error(HttpStatus status, String message,
-                                                             HttpServletRequest request,
-                                                             Map<String, String> fieldErrors) {
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("timestamp", Instant.now().toString());
-        body.put("status", status.value());
-        body.put("error", status.getReasonPhrase());
-        body.put("message", message);
-        body.put("path", request.getRequestURI());
-        if (fieldErrors != null) {
-            body.put("fieldErrors", fieldErrors);
-        }
-        return ResponseEntity.status(status).body(body);
+    private static ProblemDetail problem(HttpStatus status, String title, String detail) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, detail);
+        problem.setTitle(title);
+        return problem;
     }
 }

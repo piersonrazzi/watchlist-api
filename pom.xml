@@ -76,26 +76,18 @@
 			<!--
 				Software Bill of Materials (SBOM): an inventory of every library
 				that ships in the jar, including transitive ones, with exact
-				versions and package URLs (purls). Written to target/bom.json
-				during "package". Security scanners consume this file.
+				versions and package URLs (purls). Security scanners consume it.
+
+				Since Boot 3.3 the parent POM pre-configures this plugin (version,
+				goal, phase, output path), so declaring it is enough. The SBOM is
+				written to target/classes/META-INF/sbom/application.cdx.json and
+				therefore ships INSIDE the jar. Test-scope libraries are excluded.
+				(In the Boot 2.7 version we configured all of this by hand and wrote
+				target/bom.json; after upgrading, that stale file fooled the scanner.)
 			-->
 			<plugin>
 				<groupId>org.cyclonedx</groupId>
 				<artifactId>cyclonedx-maven-plugin</artifactId>
-				<executions>
-					<execution>
-						<phase>package</phase>
-						<goals>
-							<goal>makeAggregateBom</goal>
-						</goals>
-					</execution>
-				</executions>
-				<configuration>
-					<outputFormat>json</outputFormat>
-					<outputName>bom</outputName>
-					<!-- Only what ships to production; test libraries are excluded. -->
-					<includeTestScope>false</includeTestScope>
-				</configuration>
 			</plugin>
 		</plugins>
 	</build>

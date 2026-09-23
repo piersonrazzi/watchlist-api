@@ -7,9 +7,10 @@ import dev.razzi.watchlist.repository.WatchlistRepository;
 import dev.razzi.watchlist.web.dto.AddItemRequest;
 import dev.razzi.watchlist.web.dto.CreateWatchlistRequest;
 import dev.razzi.watchlist.web.dto.WatchlistResponse;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Locale;
-import java.util.stream.Collectors;
+import java.util.Objects;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,8 +19,8 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * Every public method runs in a transaction (class-level @Transactional).
  * Entities are converted to response DTOs *inside* the transaction, so lazy
- * collections can still load. We also set spring.jpa.open-in-view=false, so
- * the controller never touches the database directly.
+ * collections can still load. spring.jpa.open-in-view=false keeps the
+ * controller from touching the database directly.
  */
 @Service
 @Transactional
@@ -33,7 +34,7 @@ public class WatchlistService {
     }
 
     public WatchlistResponse create(CreateWatchlistRequest request) {
-        Watchlist saved = repository.save(new Watchlist(request.getName().trim()));
+        Watchlist saved = repository.save(new Watchlist(request.name().trim()));
         return WatchlistResponse.from(saved);
     }
 
@@ -41,7 +42,7 @@ public class WatchlistService {
     public List<WatchlistResponse> findAll() {
         return repository.findAllWithItems().stream()
                 .map(WatchlistResponse::from)
-                .collect(Collectors.toList());
+                .toList();
     }
 
     @Transactional(readOnly = true)
@@ -60,18 +61,18 @@ public class WatchlistService {
         validateInstrumentFields(request);
         Watchlist watchlist = load(watchlistId);
 
-        String symbol = request.getSymbol().trim().toUpperCase(Locale.ROOT);
+        String symbol = request.symbol().trim().toUpperCase(Locale.ROOT);
         boolean duplicate = watchlist.getItems().stream().anyMatch(existing ->
                 existing.getSymbol().equals(symbol)
-                        && existing.getType() == request.getType()
-                        && equalsNullable(existing.getStrike(), request.getStrike())
-                        && equalsNullable(existing.getExpiration(), request.getExpiration()));
+                        && existing.getType() == request.type()
+                        && sameStrike(existing.getStrike(), request.strike())
+                        && Objects.equals(existing.getExpiration(), request.expiration()));
         if (duplicate) {
             throw new InvalidRequestException("That instrument is already on this watchlist");
         }
 
-        watchlist.addItem(new WatchlistItem(symbol, request.getType(), request.getStrike(),
-                request.getExpiration(), request.getNotes()));
+        watchlist.addItem(new WatchlistItem(symbol, request.type(), request.strike(),
+                request.expiration(), request.notes()));
         // Flush so the database assigns the new item's id before we build the response.
         repository.saveAndFlush(watchlist);
         return WatchlistResponse.from(watchlist);
@@ -95,9 +96,9 @@ public class WatchlistService {
 
     /** Cross-field rule: options need strike + expiration; stocks must have neither. */
     private static void validateInstrumentFields(AddItemRequest request) {
-        InstrumentType type = request.getType();
-        boolean hasStrike = request.getStrike() != null;
-        boolean hasExpiration = request.getExpiration() != null;
+        InstrumentType type = request.type();
+        boolean hasStrike = request.strike() != null;
+        boolean hasExpiration = request.expiration() != null;
 
         if (type.isOption() && (!hasStrike || !hasExpiration)) {
             throw new InvalidRequestException(type + " options require both strike and expiration");
@@ -107,14 +108,14 @@ public class WatchlistService {
         }
     }
 
-    private static boolean equalsNullable(Object a, Object b) {
+    /**
+     * Compares strikes by numeric value: 150 and 150.00 are the same strike.
+     * (BigDecimal.equals would say they differ, because their scale differs.)
+     */
+    private static boolean sameStrike(BigDecimal a, BigDecimal b) {
         if (a == null || b == null) {
             return a == b;
         }
-        // compareTo-style equality for BigDecimal: 150 and 150.00 are the same strike.
-        if (a instanceof java.math.BigDecimal decimal && b instanceof java.math.BigDecimal decimal1) {
-            return decimal.compareTo(decimal1) == 0;
-        }
-        return a.equals(b);
+        return a.compareTo(b) == 0;
     }
 }

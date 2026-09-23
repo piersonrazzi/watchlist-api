@@ -18,9 +18,9 @@ import jakarta.persistence.Table;
 /**
  * Aggregate root: a named list of instruments.
  *
- * Note the javax.persistence imports. In Spring Boot 3 these become
- * jakarta.persistence, which is the single biggest mechanical change
- * in a 2.x to 3.x migration.
+ * These imports were javax.persistence in the Boot 2.7 version. The
+ * javax -> jakarta rename is the single biggest mechanical change in a
+ * 2.x to 3.x migration (done here by OpenRewrite).
  */
 @Entity
 @Table(name = "watchlists")

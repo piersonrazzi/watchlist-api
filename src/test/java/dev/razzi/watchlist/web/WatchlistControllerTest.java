@@ -6,6 +6,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -20,8 +21,8 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
@@ -29,8 +30,8 @@ import org.springframework.test.web.servlet.MockMvc;
  * JSON conversion, validation, @RestControllerAdvice). The service is
  * replaced with a Mockito mock, so no database is involved.
  *
- * Migration note: @MockBean is deprecated in Boot 3.4 and removed in Boot 4,
- * where it becomes @MockitoBean.
+ * Migration note: Boot's @MockBean was deprecated in 3.4 and is removed in 4.
+ * Its replacement, @MockitoBean, lives in Spring Framework itself (6.2+).
  */
 @WebMvcTest(WatchlistController.class)
 class WatchlistControllerTest {
@@ -41,7 +42,7 @@ class WatchlistControllerTest {
     @Autowired
     private ObjectMapper json;
 
-    @MockBean
+    @MockitoBean
     private WatchlistService service;
 
     @Test
@@ -63,18 +64,23 @@ class WatchlistControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\": \"   \"}"))
                 .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.title").value("Validation failed"))
                 .andExpect(jsonPath("$.fieldErrors.name").exists());
 
         verifyNoInteractions(service);
     }
 
     @Test
-    void getMissingWatchlist_returns404WithMessage() throws Exception {
+    void getMissingWatchlist_returns404ProblemDetail() throws Exception {
         when(service.findById(99L)).thenThrow(new NotFoundException("Watchlist 99 not found"));
 
         mvc.perform(get("/api/watchlists/99"))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.message").value("Watchlist 99 not found"));
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.detail").value("Watchlist 99 not found"))
+                .andExpect(jsonPath("$.instance").value("/api/watchlists/99"));
     }
 
     @Test

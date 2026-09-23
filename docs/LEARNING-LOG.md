@@ -140,3 +140,54 @@ Rule of thumb: edge cases in fast tests, one happy-path lifecycle in the slow te
 3. How do you patch a vulnerable library without upgrading the framework, and what are the limits?
 4. Does a CVE in a dependency mean your app is vulnerable? How do you triage?
 5. Why multi-stage Docker builds and a non-root user?
+
+---
+
+## Phase 3 — Migrate to Spring Boot 3.5 / Java 21
+
+Full details in [MIGRATION.md](MIGRATION.md). Key concepts:
+
+### Why Boot 3 was a "hard" upgrade
+- **Jakarta EE:** Oracle gave Java EE to the Eclipse Foundation but kept the `javax` trademark,
+  so every EE package was renamed `javax.* → jakarta.*` (JPA, Validation, Servlet...).
+  Libraries compiled against `javax` simply don't work with Spring 6. Every file that touches
+  JPA, validation or servlets changes.
+- **Java 17 minimum**, Hibernate 5 → 6, Spring Framework 5 → 6.
+
+### OpenRewrite
+- Automated refactoring from "recipes" (tested transformations). Works on the syntax tree,
+  not text, so it understands types and imports. Standard tool for large migrations.
+- **Always `dryRun` first** and read the patch. **Commit automated output separately** from
+  manual fixes so reviewers can see which is which.
+- It can't know intent: it left our temporary version overrides in place.
+
+### "It compiles" is not "it works"
+- Mixing major versions of one framework compiles fine and then fails at runtime with
+  `NoClassDefFoundError` / `ClassNotFoundException` / `NoSuchMethodError`. Those three errors
+  after an upgrade almost always mean a version mismatch on the classpath.
+  Diagnose with `mvnw dependency:tree`.
+
+### Modern Java used
+- **Records:** immutable data carriers. The compiler writes the constructor, accessors,
+  `equals`, `hashCode` and `toString`. Perfect for DTOs; not for JPA entities (they need
+  mutability and a no-arg constructor).
+- **Pattern matching `instanceof`**, **`Stream.toList()`** (unmodifiable result).
+
+### ProblemDetail (RFC 9457)
+- Standard JSON error format: `type`, `title`, `status`, `detail`, `instance`, plus custom properties.
+- Extending `ResponseEntityExceptionHandler` makes *all* Spring MVC errors use it.
+- Changing error field names (`message` → `detail`) is a **breaking API change** for clients.
+  In a real product: version the API or announce it.
+
+### Moving targets
+- Boot 3.5's free support ended 2026-06-30. Its final release (3.5.16, June 25) ships Tomcat 10.1.55;
+  three critical Tomcat advisories fixed later in 10.1.58 will never land in a free 3.5 release.
+- Choose migration targets by **support window**, not by "one version up."
+
+### Interview questions to be ready for
+1. Why did `javax` become `jakarta`, and why did that make Boot 3 a breaking upgrade?
+2. How did you use OpenRewrite, and what did you have to fix by hand?
+3. Your app compiles but fails with `NoClassDefFoundError` after an upgrade. What's your first guess?
+4. Records vs. classes: when would you *not* use a record?
+5. What is ProblemDetail, and what's the client-facing risk of adopting it?
+6. Why wasn't Boot 3.5 the final target?

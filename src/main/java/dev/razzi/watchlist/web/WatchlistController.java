@@ -38,7 +38,7 @@ public class WatchlistController {
     public ResponseEntity<WatchlistResponse> create(@Valid @RequestBody CreateWatchlistRequest request,
                                                     UriComponentsBuilder uriBuilder) {
         WatchlistResponse created = service.create(request);
-        URI location = uriBuilder.path("/api/watchlists/{id}").buildAndExpand(created.getId()).toUri();
+        URI location = uriBuilder.path("/api/watchlists/{id}").buildAndExpand(created.id()).toUri();
         return ResponseEntity.created(location).body(created);
     }
 

@@ -36,5 +36,5 @@ jobs:
         with:
           name: security-reports
           path: |
-            target/bom.json
+            target/classes/META-INF/sbom/application.cdx.json
             osv-report.md
