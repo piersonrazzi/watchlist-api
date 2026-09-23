@@ -112,8 +112,8 @@ public class WatchlistService {
             return a == b;
         }
         // compareTo-style equality for BigDecimal: 150 and 150.00 are the same strike.
-        if (a instanceof java.math.BigDecimal && b instanceof java.math.BigDecimal) {
-            return ((java.math.BigDecimal) a).compareTo((java.math.BigDecimal) b) == 0;
+        if (a instanceof java.math.BigDecimal decimal && b instanceof java.math.BigDecimal decimal1) {
+            return decimal.compareTo(decimal1) == 0;
         }
         return a.equals(b);
     }
